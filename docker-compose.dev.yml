@@ -101,6 +101,11 @@ services:
       - "${DOCREADER_PORT:-50051}:50051"
     environment:
       - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY_ID=${MINIO_ACCESS_KEY_ID}
+      - MINIO_SECRET_ACCESS_KEY=${MINIO_SECRET_ACCESS_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - DOCREADER_OCR_BACKEND=paddle
       - STORAGE_TYPE=${STORAGE_TYPE:-}
       - MINIO_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT:-9000}
       - MINERU_ENDPOINT=${MINERU_ENDPOINT:-}
@@ -153,4 +158,3 @@ volumes:
   neo4j-data-dev:
   jaeger_data_dev:
   qdrant_data_dev:
-

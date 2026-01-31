@@ -41,7 +41,8 @@ export function formatStringDate(date: any) {
 }
 export function kbFileTypeVerification(file: any, silent = false) {
   let validTypes = ["pdf", "txt", "md", "docx", "doc", "jpg", "jpeg", "png", "csv", "xlsx", "xls"];
-  let type = file.name.substring(file.name.lastIndexOf(".") + 1);
+  const rawExt = file?.name?.split(".").pop() || "";
+  let type = rawExt.toLowerCase();
   if (!validTypes.includes(type)) {
     if (!silent) {
       MessagePlugin.error("文件类型错误！");

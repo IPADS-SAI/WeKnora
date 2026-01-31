@@ -6,13 +6,14 @@ It converts CSV data into a Document with structured chunks, where each row
 becomes a separate chunk with key-value pairs.
 """
 import logging
-from io import BytesIO
+from io import StringIO
 from typing import List
 
 import pandas as pd
 
 from docreader.models.document import Chunk, Document
 from docreader.parser.base_parser import BaseParser
+from docreader.utils import endecode
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,9 @@ class CSVParser(BaseParser):
         text: List[str] = []
         start, end = 0, 0
 
-        # Read CSV content into a pandas DataFrame, skipping malformed lines
-        df = pd.read_csv(BytesIO(content), on_bad_lines="skip")
+        # Decode bytes to text with automatic encoding detection, then parse.
+        text_content = endecode.decode_bytes(content)
+        df = pd.read_csv(StringIO(text_content), on_bad_lines="skip")
 
         # Process each row in the DataFrame
         for i, (idx, row) in enumerate(df.iterrows()):

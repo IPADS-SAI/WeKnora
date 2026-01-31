@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
@@ -60,7 +61,11 @@ func TracingMiddleware() gin.HandlerFunc {
 		if c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH" {
 			if c.Request.Body != nil {
 				bodyBytes, _ := io.ReadAll(c.Request.Body)
-				span.SetAttributes(attribute.String("http.request.body", string(bodyBytes)))
+				if utf8.Valid(bodyBytes) {
+					span.SetAttributes(attribute.String("http.request.body", string(bodyBytes)))
+				} else {
+					span.SetAttributes(attribute.String("http.request.body", fmt.Sprintf("[non-utf8 body omitted, %d bytes]", len(bodyBytes))))
+				}
 				// Reset request body because ReadAll consumes the Reader content
 				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
@@ -94,9 +99,13 @@ func TracingMiddleware() gin.HandlerFunc {
 		span.SetAttributes(attribute.Int("http.status_code", statusCode))
 
 		// Record response body
-		responseContent := responseBody.String()
-		if len(responseContent) > 0 {
-			span.SetAttributes(attribute.String("http.response.body", responseContent))
+		responseBytes := responseBody.Bytes()
+		if len(responseBytes) > 0 {
+			if utf8.Valid(responseBytes) {
+				span.SetAttributes(attribute.String("http.response.body", string(responseBytes)))
+			} else {
+				span.SetAttributes(attribute.String("http.response.body", fmt.Sprintf("[non-utf8 body omitted, %d bytes]", len(responseBytes))))
+			}
 		}
 
 		// Record response headers (optional, or selectively record important headers)

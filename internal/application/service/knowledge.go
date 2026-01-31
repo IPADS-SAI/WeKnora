@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/docreader/client"
 	"github.com/Tencent/WeKnora/docreader/proto"
@@ -34,6 +36,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/traditionalchinese"
+	"golang.org/x/text/transform"
 )
 
 // Error definitions for knowledge service operations
@@ -2207,7 +2213,7 @@ func getFileType(filename string) string {
 	if len(ext) < 2 {
 		return "unknown"
 	}
-	return ext[len(ext)-1]
+	return strings.ToLower(ext[len(ext)-1])
 }
 
 // isValidURL verifies if a URL is valid
@@ -6266,12 +6272,47 @@ func (s *knowledgeService) getVLMProtoConfig(ctx context.Context, kb *types.Know
 }
 
 func IsImageType(fileType string) bool {
-	switch fileType {
+	switch strings.ToLower(fileType) {
 	case "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff":
 		return true
 	default:
 		return false
 	}
+}
+
+func decodeCSVToUTF8(content []byte) ([]byte, string, error) {
+	if len(content) == 0 {
+		return content, "utf-8", nil
+	}
+
+	// Trim UTF-8 BOM if present to avoid parser issues.
+	content = bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
+	if utf8.Valid(content) {
+		return content, "utf-8", nil
+	}
+
+	candidates := []struct {
+		name string
+		enc  encoding.Encoding
+	}{
+		{name: "gb18030", enc: simplifiedchinese.GB18030},
+		{name: "gbk", enc: simplifiedchinese.GBK},
+		{name: "gb2312", enc: simplifiedchinese.HZGB2312},
+		{name: "big5", enc: traditionalchinese.Big5},
+	}
+
+	for _, c := range candidates {
+		reader := transform.NewReader(bytes.NewReader(content), c.enc.NewDecoder())
+		decoded, err := io.ReadAll(reader)
+		if err != nil {
+			continue
+		}
+		if utf8.Valid(decoded) {
+			return decoded, c.name, nil
+		}
+	}
+
+	return content, "", fmt.Errorf("failed to decode CSV content with known encodings")
 }
 
 // ProcessDocument handles Asynq document processing tasks
@@ -6482,6 +6523,19 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 				s.repo.UpdateKnowledge(ctx, knowledge)
 			}
 			return fmt.Errorf("failed to read file: %w", err)
+		}
+
+		// Detect and convert CSV encoding to UTF-8 to avoid parser failures.
+		if strings.EqualFold(payload.FileType, "csv") {
+			decoded, enc, decodeErr := decodeCSVToUTF8(contentBytes)
+			if decodeErr != nil {
+				logger.Warnf(ctx, "failed to detect CSV encoding, using original bytes: %v", decodeErr)
+			} else {
+				if enc != "utf-8" {
+					logger.Infof(ctx, "decoded CSV content from %s to utf-8", enc)
+				}
+				contentBytes = decoded
+			}
 		}
 
 		// 调用docReader处理文件
